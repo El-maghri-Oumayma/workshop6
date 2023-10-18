@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "This is the workshop number 6 by ouma"
+
+Resources:
+  workshop6bucketouma:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: "workshop6bucketouma"
+
+  Workshop6Roleouma:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Delete
+    Properties:
+      RoleName: Workshop6Roleouma
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "Workshop6Policyouma"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:ListBucket"
+                  - "s3:DeleteObject"
+                  - "s3:ListAllMyBuckets"
+                Resource:
+                  - "*"
+
+  LambdaFunctionW6Ouma:
+    Type: AWS::Lambda::Function
+    DeletionPolicy: Delete
+    Properties:
+      Description: "The function for Workshop"
+      FunctionName: "LambdaFunctionW6Ouma"
+      Handler: "index.lambda_handler"
+      Role: !GetAtt Workshop6Roleouma.Arn
+      Runtime: "python3.9"
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+
+          def lambda_handler(event, context):
+              s3 = boto3.client('s3')
+              
+              try:
+                  # Extracting bucket and key from event safely
+                  query_params = event.get('queryStringParameters') or {}
+                  bucket_name = query_params.get('bucket')
+                  object_key = query_params.get('key')
+                  
+                  # Create CORS headers to allow any origin to access this Lambda function.
+                  # You can customize this based on your needs.
+                  headers = {
+                      'Access-Control-Allow-Origin': '*',
+                      'Access-Control-Allow-Headers': 'Content-Type',
+                      'Access-Control-Allow-Methods': 'GET'
+                  }
+                  
+                  # No parameters, return list of buckets
+                  if not bucket_name:
+                      buckets = s3.list_buckets()
+                      bucket_names = [bucket['Name'] for bucket in buckets['Buckets']]
+                      return {
+                          'statusCode': 200,
+                          'headers': headers,
+                          'body': json.dumps(bucket_names)
+                      }
+              
+                  # Only bucket provided, return list of objects in bucket
+                  if bucket_name and not object_key:
+                      objs = s3.list_objects(Bucket=bucket_name)
+                      object_names = [obj['Key'] for obj in objs.get('Contents', [])]
+                      return {
+                          'statusCode': 200,
+                          'headers': headers,
+                          'body': json.dumps(object_names)
+                      }
+              
+                  # Both bucket and key provided, return object content
+                  if bucket_name and object_key:
+                      content = s3.get_object(Bucket=bucket_name, Key=object_key)
+                      return {
+                          'statusCode': 200,
+                          'headers': headers,
+                          'body': content['Body'].read().decode('utf-8')
+                      }
+              
+              except Exception as e:
+                  return {
+                      'statusCode': 500,
+                      'body': str(e)
+                  }
+      
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref workshop6bucketouma
+
+  MyApiW6Ouma:
+    Type: AWS::ApiGateway::RestApi
+    DeletionPolicy: Delete
+    Properties:
+      Name: "MyApiW6Ouma"
+
+  MyApiResourceW6Ouma:
+    Type: AWS::ApiGateway::Resource
+    DeletionPolicy: Delete
+    Properties:
+      RestApiId: !Ref MyApiW6Ouma
+      ParentId: !GetAtt MyApiW6Ouma.RootResourceId
+      PathPart: "api"
+
+  MyApiMethodW6Ouma:
+    Type: AWS::ApiGateway::Method
+    DeletionPolicy: Delete
+    Properties:
+      RestApiId: !Ref MyApiW6Ouma
+      ResourceId: !Ref MyApiResourceW6Ouma
+      HttpMethod: "GET"
+      AuthorizationType: "NONE"
+      Integration:
+        Type: "AWS_PROXY"
+        IntegrationHttpMethod: "POST"
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionW6Ouma.Arn}/invocations"
+        PassthroughBehavior: "WHEN_NO_TEMPLATES"
+      RequestParameters:
+        method.request.querystring.bucket: false
+        method.request.querystring.key: false
+
+  LambdaPermissionOuma:
+    Type: AWS::Lambda::Permission
+    DeletionPolicy: Delete
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !Ref LambdaFunctionW6Ouma
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApiW6Ouma}/*/GET/api"
+
+  ApiDeploymentOuma:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref MyApiW6Ouma
+      StageName: Prod
+    DependsOn:
+      - MyApiMethodW6Ouma
+
+  ApiGatewayStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref MyApiW6Ouma
+      DeploymentId: !Ref ApiDeploymentOuma
+      StageName: dev
