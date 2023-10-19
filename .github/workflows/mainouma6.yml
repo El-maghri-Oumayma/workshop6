@@ -22,5 +22,5 @@ jobs:
       uses: aws-actions/aws-cloudformation-github-deploy@master
       with:
         name: Githubworkflowouma
-        template: templateouma.yaml
+        template: templatefinale.yaml
         capabilities: CAPABILITY_NAMED_IAM
